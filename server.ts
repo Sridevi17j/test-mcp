@@ -1,5 +1,4 @@
 import express from "express";
-import bodyParser from "body-parser";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
@@ -23,7 +22,7 @@ server.tool(
       const response = await axios.get(url, {
         timeout: 10000,
         headers: {
-          "User-Agent": "Mozilla/5.0 (compatible: MCPContentBot/1.0)"
+          "User-Agent": "Mozilla/5.0 (compatible; MCPContentBot/1.0)"
         }
       });
 
@@ -51,15 +50,9 @@ server.tool(
 
 // Express + SSE setup
 const app = express();
-// Fix: Use raw body parser instead
-app.use(express.raw({
-  type: 'application/json',
-  limit: '10mb'
-}));
-
 const transports: { [sessionId: string]: SSEServerTransport } = {};
 
-app.get("/sse", async (req, res) => {
+app.get("/sse", (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
   transports[transport.sessionId] = transport;
   console.log("SSE session started:", transport.sessionId);
@@ -69,11 +62,13 @@ app.get("/sse", async (req, res) => {
     delete transports[transport.sessionId];
   });
 
-  await server.connect(transport);
+  server.connect(transport);
 });
 
-// Fixed middleware function signature
-app.post("/messages", async (req: express.Request, res: express.Response) => {
+// Simple middleware to log request data
+app.use(express.text({ type: "*/*" }));
+
+app.post("/messages", (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
   
@@ -81,33 +76,27 @@ app.post("/messages", async (req: express.Request, res: express.Response) => {
     return res.status(400).send("No transport found for sessionId");
   }
 
+  // Log the raw request body for inspection
+  console.log("Raw request body:", req.body);
+  
   try {
-    // The request body is already available as a Buffer
-    const bodyBuffer = req.body;
-    const bodyStr = bodyBuffer.toString('utf8');
-    
-    try {
-      const message = JSON.parse(bodyStr);
-      
-      // Just log the message to see its structure
-      console.log("Received message type:", message.method);
-      
-      // Check if it's a tool call and extract the tool name
-      if (message.method === "tools/call" && message.params && message.params.name) {
-        const toolName = message.params.name;
-        console.log("Tool call detected:", toolName);
-      }
-    } catch (parseError) {
-      console.error("Error parsing JSON:", parseError);
-      // Continue processing even if JSON parsing fails
+    // Try to parse as JSON to extract tool name
+    const message = JSON.parse(req.body as string);
+    if (message.method === "tools/call" && message.params && message.params.name) {
+      console.log("TOOL CALL DETECTED:", message.params.name);
+      console.log("Arguments:", JSON.stringify(message.params.arguments));
     }
-    
-    // Process the original request
-    await transport.handlePostMessage(req, res);
-  } catch (error) {
-    console.error("Error processing request:", error);
-    res.status(500).send("Internal server error");
+  } catch (e) {
+    console.log("Not a valid JSON or not a tool call");
   }
+  
+  // Create a new request to pass to handlePostMessage
+  const rawBody = Buffer.from(req.body as string);
+  const newReq = Object.create(req);
+  newReq.body = rawBody;
+  
+  // Continue with normal processing
+  transport.handlePostMessage(newReq, res);
 });
 
 const PORT = process.env.PORT || 3002;
