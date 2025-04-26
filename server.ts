@@ -23,7 +23,7 @@ server.tool(
       const response = await axios.get(url, {
         timeout: 10000,
         headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; MCPContentBot/1.0)"
+          "User-Agent": "Mozilla/5.0 (compatible: MCPContentBot/1.0)"
         }
       });
 
@@ -51,7 +51,11 @@ server.tool(
 
 // Express + SSE setup
 const app = express();
-app.use(bodyParser.json());
+// Fix: Use raw body parser instead
+app.use(express.raw({
+  type: 'application/json',
+  limit: '10mb'
+}));
 
 const transports: { [sessionId: string]: SSEServerTransport } = {};
 
@@ -68,8 +72,8 @@ app.get("/sse", async (req, res) => {
   await server.connect(transport);
 });
 
-// Modified messages endpoint to extract tool name
-app.post("/messages", async (req, res) => {
+// Fixed middleware function signature
+app.post("/messages", async (req: express.Request, res: express.Response) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
   
@@ -77,16 +81,12 @@ app.post("/messages", async (req, res) => {
     return res.status(400).send("No transport found for sessionId");
   }
 
-  const chunks: Buffer[] = [];
-  
-  req.on('data', (chunk) => {
-    chunks.push(Buffer.from(chunk));
-  });
-  
-  req.on('end', async () => {
+  try {
+    // The request body is already available as a Buffer
+    const bodyBuffer = req.body;
+    const bodyStr = bodyBuffer.toString('utf8');
+    
     try {
-      const bodyBuffer = Buffer.concat(chunks);
-      const bodyStr = bodyBuffer.toString('utf8');
       const message = JSON.parse(bodyStr);
       
       // Just log the message to see its structure
@@ -97,18 +97,17 @@ app.post("/messages", async (req, res) => {
         const toolName = message.params.name;
         console.log("Tool call detected:", toolName);
       }
-      
-      // Create a new request with the original body
-      const newReq = Object.create(req);
-      newReq.body = bodyBuffer;
-      
-      // Process the request
-      await transport.handlePostMessage(newReq, res);
-    } catch (error) {
-      console.error("Error processing request:", error);
-      res.status(500).send("Internal server error");
+    } catch (parseError) {
+      console.error("Error parsing JSON:", parseError);
+      // Continue processing even if JSON parsing fails
     }
-  });
+    
+    // Process the original request
+    await transport.handlePostMessage(req, res);
+  } catch (error) {
+    console.error("Error processing request:", error);
+    res.status(500).send("Internal server error");
+  }
 });
 
 const PORT = process.env.PORT || 3002;
