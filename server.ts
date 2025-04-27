@@ -25,11 +25,9 @@ server.tool(
           "User-Agent": "Mozilla/5.0 (compatible; MCPContentBot/1.0)"
         }
       });
-
       const dom = new JSDOM(response.data, { url });
       const reader = new Readability(dom.window.document);
       const article = reader.parse();
-
       if (article?.textContent) {
         return {
           content: [{ type: "text", text: article.textContent }]
@@ -56,51 +54,42 @@ app.get("/sse", (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
   transports[transport.sessionId] = transport;
   console.log("SSE session started:", transport.sessionId);
-
   res.on("close", () => {
     console.log("SSE session closed:", transport.sessionId);
     delete transports[transport.sessionId];
   });
-
   server.connect(transport);
 });
 
-// Simple middleware to log request data
-app.use(express.text({ type: "*/*" }));
-
-app.post("/messages", (req, res) => {
+// Add route for messages
+app.post("/messages", express.raw({ type: "*/*" }), (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
   
   if (!transport) {
     return res.status(400).send("No transport found for sessionId");
   }
-
-  // Log the raw request body for inspection
-  console.log("Raw request body:", req.body);
+  
+  // Log request data
+  const bodyString = req.body.toString('utf8');
+  console.log("Raw request body length:", bodyString.length);
   
   try {
-    // Try to parse as JSON to extract tool name
-    const message = JSON.parse(req.body as string);
-    if (message.method === "tools/call" && message.params && message.params.name) {
-      console.log("TOOL CALL DETECTED:", message.params.name);
-      console.log("Arguments:", JSON.stringify(message.params.arguments));
+    const json = JSON.parse(bodyString);
+    console.log("Parsed JSON method:", json.method);
+    
+    if (json.method === "tools/call" && json.params && json.params.name) {
+      console.log("TOOL CALL DETECTED:", json.params.name);
     }
   } catch (e) {
-    console.log("Not a valid JSON or not a tool call");
+    console.log("Failed to parse JSON:", e);
   }
   
-  // Create a new request to pass to handlePostMessage
-  const rawBody = Buffer.from(req.body as string);
-  const newReq = Object.create(req);
-  newReq.body = rawBody;
-  
   // Continue with normal processing
-  transport.handlePostMessage(newReq, res);
+  transport.handlePostMessage(req, res);
 });
 
 const PORT = process.env.PORT || 3002;
-
 app.listen(PORT, () => {
   console.log(`MCP Server running on port ${PORT}`);
 });
