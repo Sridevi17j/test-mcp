@@ -47,8 +47,39 @@ server.tool(
 // Express + SSE setup
 const app = express();
 const transports: { [sessionId: string]: SSEServerTransport } = {};
+
+// Create a custom transport class that logs tool calls
+class LoggingSSEServerTransport extends SSEServerTransport {
+  async handlePostMessage(req: any, res: any) {
+    // Try to get the raw body to check for tool calls
+    const bodyData: any[] = [];
+    
+    req.on('data', (chunk: any) => {
+      bodyData.push(chunk);
+    });
+    
+    req.on('end', () => {
+      try {
+        const bodyBuffer = Buffer.concat(bodyData);
+        const bodyStr = bodyBuffer.toString('utf8');
+        const message = JSON.parse(bodyStr);
+        
+        if (message.method === "tools/call" && message.params && message.params.name) {
+          console.log("🔧 Tool call detected:", message.params.name);
+        }
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    });
+    
+    // Call the parent method to handle the message normally
+    return super.handlePostMessage(req, res);
+  }
+}
+
 app.get("/sse", async (req, res) => {
-  const transport = new SSEServerTransport("/messages", res);
+  // Use our custom transport instead of the standard one
+  const transport = new LoggingSSEServerTransport("/messages", res);
   transports[transport.sessionId] = transport;
   console.log("🔗 SSE session started:", transport.sessionId);
   res.on("close", () => {
@@ -58,40 +89,16 @@ app.get("/sse", async (req, res) => {
   await server.connect(transport);
 });
 
-
-// And modify your messages endpoint
 app.post("/messages", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
-  
-  if (!transport) {
-    return res.status(400).send("No transport found for sessionId");
+  if (transport) {
+    await transport.handlePostMessage(req, res);
+  } else {
+    res.status(400).send("No transport found for sessionId");
   }
-  
-  // Clone the request body stream for inspection
-  const chunks: Buffer[] = [];
-  req.on('data', chunk => {
-    chunks.push(chunk);
-  });
-  
-  // Once we have the chunks, parse the body but don't interfere with the original request
-  req.on('end', () => {
-    try {
-      const bodyBuffer = Buffer.concat(chunks);
-      const bodyStr = bodyBuffer.toString('utf8');
-      const message = JSON.parse(bodyStr);
-      
-      if (message.method === "tools/call" && message.params && message.params.name) {
-        console.log("🔧 Tool call detected:", message.params.name);
-      }
-    } catch (e) {
-      console.log("Error parsing request:", e);
-    }
-  });
-  
-  // Don't wait for body parsing to finish, just pass the request to handlePostMessage
-  await transport.handlePostMessage(req, res);
 });
+
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
   console.log(`✅ MCP Server running on port ${PORT}`);
