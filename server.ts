@@ -58,36 +58,39 @@ app.get("/sse", async (req, res) => {
   await server.connect(transport);
 });
 
-// Simple middleware to access raw body
-app.use(express.json({ verify: (req: any, res, buf) => {
-  req.rawBody = buf;
-}}));
 
+// And modify your messages endpoint
 app.post("/messages", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
-  if (transport) {
-    // Try to inspect the message before processing
+  
+  if (!transport) {
+    return res.status(400).send("No transport found for sessionId");
+  }
+  
+  // Clone the request body stream for inspection
+  const chunks: Buffer[] = [];
+  req.on('data', chunk => {
+    chunks.push(chunk);
+  });
+  
+  // Once we have the chunks, parse the body but don't interfere with the original request
+  req.on('end', () => {
     try {
-      // Access raw body if available
-      const rawReq = req as any;
-      if (rawReq.rawBody) {
-        const bodyStr = rawReq.rawBody.toString('utf8');
-        const message = JSON.parse(bodyStr);
-        
-        if (message.method === "tools/call" && message.params && message.params.name) {
-          console.log("🔧 Tool call detected:", message.params.name);
-        }
+      const bodyBuffer = Buffer.concat(chunks);
+      const bodyStr = bodyBuffer.toString('utf8');
+      const message = JSON.parse(bodyStr);
+      
+      if (message.method === "tools/call" && message.params && message.params.name) {
+        console.log("🔧 Tool call detected:", message.params.name);
       }
     } catch (e) {
-      // Just log error but continue processing
       console.log("Error parsing request:", e);
     }
-    
-    await transport.handlePostMessage(req, res);
-  } else {
-    res.status(400).send("No transport found for sessionId");
-  }
+  });
+  
+  // Don't wait for body parsing to finish, just pass the request to handlePostMessage
+  await transport.handlePostMessage(req, res);
 });
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
