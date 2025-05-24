@@ -33,13 +33,13 @@ server.tool(
         };
       } else {
         return {
-          content: [{ type: "text", text: "⚠️ Could not extract readable content from the page." }]
+          content: [{ type: "text", text: "Could not extract readable content from the page." }]
         };
       }
     } catch (err: any) {
-      console.error("❌ Extraction failed:", err.message || err);
+      console.error("Extraction failed:", err.message || err);
       return {
-        content: [{ type: "text", text: `❌ Failed to extract content: ${err.message}` }]
+        content: [{ type: "text", text: `Failed to extract content: ${err.message}` }]
       };
     }
   }
@@ -83,7 +83,7 @@ app.get("/sse", async (req, res) => {
   transports[transport.sessionId] = transport;
   console.log("🔗 SSE session started:", transport.sessionId);
   res.on("close", () => {
-    console.log("❌ SSE session closed:", transport.sessionId);
+    console.log("SSE session closed:", transport.sessionId);
     delete transports[transport.sessionId];
   });
   await server.connect(transport);
@@ -101,5 +101,5 @@ app.post("/messages", async (req, res) => {
 
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
-  console.log(`✅ MCP Server running on port ${PORT}`);
+  console.log(` MCP Server running on port ${PORT}`);
 });
