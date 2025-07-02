@@ -6,11 +6,37 @@ import { z } from "zod";
 import axios from "axios";
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
+
 // Create an MCP server
 const server = new McpServer({
   name: "web-content-extractor",
   version: "1.0.0"
 });
+
+// 📝 Prompt: summarize-content
+server.registerPrompt(
+  "summarize-content",
+  {
+    title: "Summarize Web Content",
+    description: "Analyze and summarize extracted web content",
+    argsSchema: { 
+      content: z.string().describe("The web content to summarize"),
+      focus: z.string().optional().describe("Specific aspect to focus on (optional)")
+    }
+  },
+  ({ content, focus }) => ({
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text: focus 
+          ? `Please summarize this web content focusing on ${focus}:\n\n${content}`
+          : `Please provide a clear summary of this web content:\n\n${content}`
+      }
+    }]
+  })
+);
+
 // 🛠️ Tool: extract-url using Readability + jsdom
 server.tool(
   "extract-url",
@@ -44,6 +70,7 @@ server.tool(
     }
   }
 );
+
 // Express + SSE setup
 const app = express();
 const transports: { [sessionId: string]: SSEServerTransport } = {};
