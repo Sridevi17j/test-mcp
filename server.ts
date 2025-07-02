@@ -13,25 +13,22 @@ const server = new McpServer({
   version: "1.0.0"
 });
 
-// 📝 Prompt: summarize-content
+// 📝 Prompt: summarize-url
 server.registerPrompt(
-  "summarize-content",
+  "summarize-url",
   {
-    title: "Summarize Web Content",
-    description: "Analyze and summarize extracted web content",
+    title: "Summarize URL Content",
+    description: "Extract content from the given URL and summarize it",
     argsSchema: { 
-      content: z.string().describe("The web content to summarize"),
-      focus: z.string().optional().describe("Specific aspect to focus on (optional)")
+      url: z.string().url().describe("The URL to extract and summarize")
     }
   },
-  ({ content, focus }) => ({
+  ({ url }) => ({
     messages: [{
       role: "user",
       content: {
         type: "text",
-        text: focus 
-          ? `Please summarize this web content focusing on ${focus}:\n\n${content}`
-          : `Please provide a clear summary of this web content:\n\n${content}`
+        text: `Extract content from ${url} and summarize it`
       }
     }]
   })
